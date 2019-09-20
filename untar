@@ -1,0 +1,44 @@
+# Attempt to untar DSWE raster files and visulaize them
+
+import os
+import tarfile
+from urllib.request import urlretrieve
+
+import numpy as np
+import pandas as pd
+#import geopandas as gpd
+
+
+directory = "Q:/My Drive/Research/USGS/"
+
+fldr_names = ["Bulk Order 1035346/Dynamic Surface Water Extent/", 
+              "Bulk Order 1036388/Dynamic Surface Water Extent/", 
+              "Bulk Order 1036489/Dynamic Surface Water Extent/",
+              "Bulk Order 1036204/Dynamic Surface Water Extent/",
+              "Bulk Order 1036642/Dynamic Surface Water Extent/"]
+
+
+
+# Untars DSWE raster files into files organized by year, month, and date
+months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+
+for folder in fldr_names:
+    fldr_dir = directory + folder
+    
+    for tarfilename in os.listdir(fldr_dir):
+        if tarfilename.endswith(".tar"):
+            year = tarfilename[15:19]
+            month = int(tarfilename[19:21]) - 1
+            day = tarfilename[21:23]
+            
+            # example dir for a DSWE on May 12, 2018:
+            # Q:/My Drive/Research/USGS/DSWE_2018/MAY/MAY12/
+            new_dir = directory + "DSWE_" + year + "/" + months[month] + "/" + months[month] + day + "/"
+            
+            tarfile_path = fldr_dir + tarfilename
+            tar = tarfile.open(tarfile_path)
+            tar.extractall(path=new_dir)
+            tar.close()
+                        
+        else:
+            pass
