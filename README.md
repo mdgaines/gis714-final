@@ -2,7 +2,7 @@
 
 ---
 
-`dswe_processing.r` untar's files, puts them into folders, and aggregates dswe 'pieces' into their Landsat tiles
+`dswe_processing.r` untars files, puts them into folders, and aggregates dswe 'pieces' into their Landsat tiles
 
 ---
 
