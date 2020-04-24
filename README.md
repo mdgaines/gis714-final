@@ -2,7 +2,19 @@
 
 ---
 
-`dswe_processing.r` untars files, puts them into folders, and aggregates dswe 'pieces' into their Landsat tiles
+`untar.ipynb` decompresses .tar files containing the interperated and masked (INWM) DSWE product. Puts .tif files into folders by year and season.
+
+`dswe_processing.r` processes the decompressed .tif files and aggregates by ARD Tile (total of 90 in the study area). Calculates 5 bands based on DSWE classifications: 
+          Band 1: high confidence water count
+          Band 2: any water count
+          Band 3: land count
+          Band 4: cloud count
+          Band 5: (high water count / (land count + all water count)) * 100
+
+`mosaic.py` merges 45 ARD tiles from the year-season to generate 2 raster files per year-season
+
+
+`error_files.txt` contains error messages from the decompression in untar.ipynb
 
 ---
 

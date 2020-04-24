@@ -1,338 +1,187 @@
-###########################################################################################
-###########################################################################################
-## This script contains several routines to preprocess the DWSE dataset ###################
-## Edited by: Vini                                                      ################### 
-## Date: Oct, 2019                                                      ###################
-## Edited by: Mollie (for my uses)                                      ###################
-## Date: Feb 2020
-###########################################################################################
+# dswe_processing.r
+# Author: Mollie Gaines
+# Last Edited: 4/17/2020
+# Purpose: process INWM tifs to get rasters across entire southeast with 5 bands: 
+#          Band 1: high confidence water count
+#          Band 2: any water count
+#          Band 3: land count
+#          Band 4: cloud count
+#          Band 5: (high water count / (land count + all water count)) * 100
+# Usage: runs based on specific file strucutre, no input required, outputs 
+# Example Input: Q:/My Drive/Research/DSWE_SE/Bulk Order 1060486/Dynamic Surface Water Extent
+# Example Output: Q:/My Drive/Research/data/DSWE_SE/2017/FALL/LC08_CU_019013_20171118_20181203_C01_V01_INWM.tif
 
-# load spatial packages
 library(raster)
-library(rgdal)
-library(rgeos)
+library(stringr)
+library(doParallel)
+library(itertools)
 
-# turn off factors
-options(stringsAsFactors = FALSE)
-setwd('Q:/My Drive/Research/scripts')
+# set.seed(42)
+# r1 <- raster(matrix(sample(c(NA, 0:4, 9), 100, rep=T), nrow=10))
+# r2 <- raster(matrix(sample(c(NA, 0:4, 9), 100, rep=T), nrow=10))
+# r3 <- raster(matrix(sample(c(NA, 0:4, 9), 100, rep=T), nrow=10))
+# r4 <- raster(matrix(sample(c(NA, 0:4, 9), 100, rep=T), nrow=10))
+# s <- stack(r1, r2, r3, r4)
+# s_v <- values(s)
 
 
-###### Single layer extraction routine   ##################################################
-###### Extract in the same year/month folder   ############################################
+myf <- function(x){
+    # check for all na
+    if(all(is.na(x))) return(c(NA, NA, NA, NA, NA))
 
-#inputs
-path_tar = 'G:/My Drive/Vini Perin - PhD CGA/datasets/DWSE/1995_2002' #folder with .tar files
-path_extract =  file.path(path_tar,'extract_test') #folder to store single
+    # set a temporary raster stack without NA's
+    tmp <- x[!is.na(x)]
 
-#conditions for path extract 
-if (!dir.exists(path_extract)){
-     dir.create(path_extract) 
-    }  else {
-}
+    #get all high conf. water (1)
+    n_1 <- as.integer(sum(as.numeric(tmp==1 & !is.na(tmp))))
 
-#create a list of .tar files from path_tar
-list_tar <- list.files(path_tar, full.names = TRUE, pattern = '\\.tar')
+    #get all water (1-4)
+    n_water <- as.integer(sum(as.numeric(tmp<9 & tmp>0 & !is.na(tmp))))
 
-ind = 1 #index to count number of images processed
+    #get all non-water (non-water and not cloud/cloud shadow --> land)
+    n_0 <- as.integer(sum(as.numeric(tmp==0 & !is.na(tmp))))
 
-#apply for loop in list_tar
-for (i in list_tar[1:20]){
-    #get date, month
-    date = as.Date(unlist(strsplit(unlist(strsplit(i,'/'))[7],'_'))[4],'%Y%m%d')
-    year = strftime(date, "%Y")
-    month = strftime(date, "%m")
-    tile = unlist(strsplit(unlist(strsplit(i,'/'))[7],'_'))[3]
+    #get all cloud (9)
+    n_9 <- as.integer(sum(as.numeric(tmp==9 & !is.na(tmp))))
 
-    #extract dir
-    extract_dir = file.path(path_extract,tile)
-
-    #separate by tile
-    if (!dir.exists(extract_dir)){
-        dir.create(extract_dir)
-    } else {
-    } 
-
-    #retrive layer name
-    filename = paste(sub('\\SW.tar$', '',basename(i)),'INWM.tif', sep ='') #INWM layer
+    #get fraction of high conf. water vs all other water and land
+    p_1 <- ifelse(
+        sum(as.numeric(tmp<9 & !is.na(tmp))) == 0,
+        as.integer(0),
+        as.integer(round((sum(tmp[tmp == 1], na.rm=T) / sum(as.numeric(tmp<9 & !is.na(tmp))) * 100),0))
+    )
     
-    #separate by year_month
-    extract_dir_ym = file.path(extract_dir, paste(year,month,sep = '_'))
+    # get fraction of water values among not-missing data
+    # water_n <- (sum(tmp[tmp > 0], na.rm=T) / sum(!is.na(tmp))) * 100
 
-    if (!dir.exists(extract_dir_ym)){
-        dir.create(extract_dir_ym)
-    } else {
-    }
+    # water_n <- ifelse(
+    #     (sum(as.numeric(tmp<9 & !is.na(tmp))) == 0 
+    #       | is.na(sum(as.numeric(tmp<9 & !is.na(tmp))))), 
+    #       0, 
+    #       sum(as.numeric((tmp<9 & tmp>0) & !is.na(tmp))) / sum(as.numeric(tmp<9 & !is.na(tmp)))
+    # )
 
-    #apply untar function again
-    img_untar <- untar(i, files = filename, exdir = extract_dir_ym)
+    # total_n <- sum(!is.na(tmp)) # perhaps you'd want to return this too, the # of good vals
 
-    #print a message once the image is complete.
-    print(sprintf("Image %s is completed. Image number %s of %s ", filename, ind, length(list_tar)))
+    return(c(n_1, n_water, n_0, n_9, p_1))
 
-    #add index
-    ind = ind + 1
-
-#print a reasonable message!
-print(sprintf('All images in %s were processed. Go do something with it!',path_tar))
-}   
-
-###########################################################################################
-###########################################################################################
-###########################################################################################
-
-###### Add scenes for each ARD tile from 1995 to 2019   ###################################
-###### Parallel processing is necessary   #################################################
-
-###########################################################################################
-# This script "mosaic" scenes using parallel processing in windows#########################
-# Edited by: Vini                                       ###################################
-###########################################################################################
-
-#Function that are we going to parallel process!
-#select most confident water pixel
-#This is a pixel-based approach! 
-#If we have overlapping scenes, than it selects the most confident water pixel classification.
-water_pixel <- function(x){
-  # fill anything that isn't 0, 1, 2, 3, or 4 with NA
-  tmp <- rep(NA, length(x))
-  tmp[x %in% 0:4] <- x[x %in% 0:4]
-  # check for all na
-  if(all(is.na(tmp))) return(NA)
-  # cjeck for all 0
-  if(all(sum(tmp, na.rm =T) == 0)) return(0)
-  # get maximum value in tmp
-  max_water_conf <- min(tmp[tmp>0], na.rm=T)
-
-  return(max_water_conf)
 }
 
-#Load libraries
-library(raster)
-library(doParallel) #for parallel using foreach
-library(itertools) #for isplitRows in foreach
-library(BLR) #maybe we do not need this
+# water_composite_v <- apply(s_v, 1, myf)
+# water_composite_s <- stack(s, r1)
+# values(water_composite_s) <- t(water_composite_v)
+# names(water_composite_s) <- c("Count 1", "All water", "Count 0", "Count 9", "Percent 1")
+# plot(s)
+# plot(water_composite_s)
 
-#First create a list of raster stacks so we can parallel several at one time!
-path = 'Q:/My Drive/Vini Perin - PhD CGA/datasets/DWSE/INWM_layer' #path with the images already divided into folder/tiles
-mosaic_f = 'Q:/My Drive/Vini Perin - PhD CGA/datasets/DWSE/mosaic_tiles'
 
-#get different tiles
-tiles <- list.dirs(path = path , full.names = F, recursive = F)
+# lst <- list.files("../data/DSWE_SE/2018/Fall", full.names = T, pattern = '\\.tif')[1:5]
+# small_stack <- raster::stack(lst)
 
-#seetings for our pararrel processing
-ncores <- 8 #Max cores that I have available!
-cl <- makePSOCKcluster(ncores) #PSOCK for windows
-registerDoParallel(cl)
+# small_stack_vals <- raster::values(small_stack)
+# small_stack_comp <- apply(small_stack_vals, 1, myf)
+# small_comp <- small_stack
+# raster::values(small_comp) <- t(small_stack_comp)
+# names(small_comp) <- c("Count 1", "All water", "Count 0", "Count 9", "Percent 1")
+# #plot(small_stack)
+# plot(small_comp)
 
-#read each month in a for loop
-for (i in tiles[2:5]){
-    #get the months in each tile
-    months = list.dirs(file.path(path,i),full.names = F, recursive = F)
+# get list of ARD tile names (all start with 0) in the study area
+tiles <- read.csv("../data/DSWE_SE/tiles.csv", stringsAsFactors = F)[,1]
+tiles <- str_pad(as.character(tiles), 6, pad = "0")
 
-    #get the files from each tile and each month
-    for(x in months){
-        #path for each tile and each month
-        tile_path = file.path(path,i,x)
-
-        #list files in tile_path
-        list_ <-  list.files(tile_path ,full.names = T, pattern = '\\.tif')
-
-        #stack rasters
-        s <- stack(list_ )
-
-        #get values
-        s_v <- raster::values(s)
-        #print message before start process
-        print(sprintf('Processing %s and %s',i,x))
-
-        #parallel each tiles
-        max_water <- foreach(m=isplitRows(s_v, chunks=ncores),
-                             .combine='c',
-                             .multicombine =T)  %dopar% {
-                              apply(m,1,water_pixel)
-                             }
-        #save monthly mosaic
-        composite <- subset(s, 1)
-        raster::values(composite) <- t(max_water)
-        names(composite) <- c("MaxWaterConfidence")
-
-        #save mosaic
-        file_name = paste(i, '_', x,'.tif', sep='')
-        #write raster
-        writeRaster(composite, filename = file.path(mosaic_f,file_name),format="GTiff", overwrite=TRUE)
-        #print nice message
-        print(sprintf('File %s was created and saved at %s',file_name,mosaic_f))
+years <- rev(list.files("../data/DSWE_SE/raw_tifs", full.names=T))
+for(fldr in years[3]){
+    yr_szn <- c()
+    if(file.exists(file.path(fldr,"Fall"))){
+        yr_szn <- append(yr_szn, file.path(fldr,"Fall"))
     }
-
-stopCluster(cl)
-}
-
-###########################################################################################
-###########################################################################################
-###########################################################################################
-
-# FUNCTIONS UNDER CONSTRUCTIONS !!! THESE ARE GENERAL IDEAS! ##############################
-
-###########################################################################################
-###########################################################################################
-###########################################################################################
-
-######-- Function to mosaic list of rasters --##############
-######-- This function takes around 45s per mosaic! --######
-mosaic_IWNM <- function(path_rasters, extract_dir,...){
-    #path to rasters and mosaic folder 
-    path_rasters = path_rasters
-    extract_dir = extract_dir
-
-    #create a list/matrix with all possible dates
-    #this part list the layer names! Including the date
-    list_all_dates = list.files(path_rasters, pattern = '\\.tif')
-
-    #THIS IS PROBLEMATIC
-    #get unique dates
-    #ncol = 8, because the name is divided into 8 parts after we apply strsplit
-    dates = unique(matrix(unlist(strsplit(list_all_dates,'_')),ncol=8,byrow=TRUE)[,4])
-
-    for (x in dates){
-
-        #create a list of raster files based on x > date in dates!
-        pattern = paste('.*',x ,'.*\\.tif', sep = '')
-
-        #list_rasters based on pattern
-        list_rasters <- list.files(path_rasters, full.names = TRUE, pattern = pattern)
-
-        #crete an empty raster
-        mergeResImg = raster()
-        for (i in list_rasters){
-            img = raster(i)
-            if (abs(mergeResImg@data@min) == abs(mergeResImg@data@max)) {
-                mergeResImg = img
+    if(file.exists(file.path(fldr,"Spring"))){
+        yr_szn <- append(yr_szn, file.path(fldr,"Spring"))
+    }
+    if(file.exists(file.path(fldr,"Summer"))){
+        yr_szn <- append(yr_szn, file.path(fldr,"Summer"))
+    }
+    if(file.exists(file.path(fldr,"Winter"))){
+        yr_szn <- append(yr_szn, file.path(fldr,"Winter"))
+    }
+    print(yr_szn)
+    for(sub_fldr in yr_szn){
+        # check if processed_tif folders exist, if not, make them
+        out_fldr <- file.path("../data/DSWE_SE/processed_tifs",basename(fldr),paste("tiles_",basename(sub_fldr),sep=""))
+        if(!file.exists(out_fldr)){
+            if(!file.exists(dirname(out_fldr))){
+                dir.create(dirname(out_fldr))
             }
-            else {
-                mergeResImg = merge(mergeResImg, img)
-            }
+            dir.create(out_fldr)
         }
 
-        names = paste(x,'.tif', sep = '')
-        writeRaster(mergeResImg, names, extract_dir, overwrite = T) #extract_dir. There might be a problem with this.
-        print(sprintf('Images from %s is done!',x))
+        # get list of tif files in folder (will build this out later, but going one at a time for now)
+        fls <- list.files(sub_fldr, full.names = T, pattern = '\\.tif')
 
-    }
-}
+        # set up parallel processing
+        ncores <- detectCores() - 1
+        cl <- makePSOCKcluster(ncores)
+        registerDoParallel(cl)
 
+        # build composite rasters by tile
+        i <- 1
+        for(t in tiles){
+            # generate file name of processed composite raster
+            fl_name <- file.path(out_fldr, paste(t,"_composite.tif", sep=""))
 
-#Final objective: create a monthly mosaic, including all tiles.
-#Steps: 1) mosaic and clamp all monthly data for one tile
-#       2) put all monthly tiles together, here we apply mosaic again
-#       3) save monthly entire area mosaic
-#
-#For step #1: mosaic and clamp all scenes for one month and one tile
-#giving the path for different tiles
-test_path = 'Q:/My Drive/Vini Perin - PhD CGA/datasets/DWSE/test_polygon2/single'
-tiles <- list.dirs(path = test_path , full.names = F, recursive = F)
+            # if processed composite raster doesn't exist, make it
+            if(!file.exists(fl_name)){
 
-#read each month in a for loop
-for (i in tiles){
-    #get the months in each tile
-    months = list.dirs(file.path(test_path,i),full.names = F, recursive = F)
+                # get all tif files that have the tile name in their file name
+                rstr_lst <- fls[grep(paste("_",t,"_",sep=""), fls, ignore.case = FALSE, perl = FALSE, fixed = TRUE)]
+                print(paste0(length(rstr_lst), " rasters for tile ", t))
 
-    #get the files from each tile and each month
-    for(x in months){
-        #path for each tile and each month
-        tile_path = file.path(test_path,i,x)
+                # read in rasters
+                lst_stack <- raster::stack(rstr_lst)
+                # get raster values as matrix
+                stack_vals <- raster::values(lst_stack)
+                
+                # process rasters to get counts of high conf. water, all water, land, cloud, and 
+                #    percent of high conf. water, using parallel processing
+                print("Beginning composite.")
+                composite_vals <- foreach(m=isplitRows(stack_vals, chunks=ncores),
+                                        .combine=c,
+                                        .multicombine=T) %dopar% {
+                                            apply(m,1,myf)
+                                        }
+                print("Composite complete.")
+                rm(stack_vals)   # remove stack_vals matrix to free up memory
 
-        #list files in tile_path
-        list_ <-  list.files(tile_path ,full.names = T, pattern = '\\.tif')
+                # convert parallel output vector to matrix with columns for each raster of interest
+                comp_mat <- matrix(composite_vals, ncol=5, byrow=T)
+                comp <- subset(lst_stack, 1:5)   # prep raster space for composite (comp)
 
-        #retrieve files from list_
-        print(sprintf('Processing %s and %s',i,x))
-        r <- lapply(list_ , raster) #files to raster. Here we create a list of all files available
-        for(z in 1:length(r)){r[[z]] <- clamp(r[[z]],lower = 1, upper = 4, useValues = F)} #here we clamp to the values to have only numbers that we are interested
-        r <- do.call(mosaic, c(r, fun = max)) #mosaic all scenes for one tile and one month, overlap will retrieve the max value
+                rm(lst_stack)   # remove lst_stack RasterStack to free up memory
 
-        #save all tiles, for a each month in one folder
-        #create folder mosaic if does not exist
-        mosaic_f = file.path(test_path,'mosaic')
+                # set comp_mat values to raster with each column as a raster band
+                raster::values(comp) <- comp_mat
+                names(comp) <- c("Count 1", "All water", "Count 0", "Count 9", "Percent 1")
+            
+                rm(comp_mat)   # remove comp_mat matrix to free up memory
+        
+                # write raster to tiles folder
+                writeRaster(comp, filename = fl_name, format="GTiff",overwrite=T)
+                print(paste0("Raster ", basename(fl_name), " written successfully, ", round(i/90*100,1), "% completed."))
 
-        #condition to create
-        if (!dir.exists(mosaic_f)){
-        dir.create(mosaic_f)
-        print('mosaic folder was created.')
-        } else {   
+                rm(comp)   # remove comp RasterStack to free up memory
+            } 
+            
+            else {print(paste(basename(fl_name), "already exists."))}
+            
+            i <- i + 1
+
         }
-        
-        #write r.tif
-        file_name = paste(i, '_', x,'.tif', sep='')
-        #save
-        writeRaster(r, filename = file.path(mosaic_f,file_name),format="GTiff", overwrite=TRUE)
+        stopCluster(cl)
 
-        #print a reasonable message
-        print(sprintf('File %s was created and saved at %s',file_name,mosaic_f))
+        print(paste(out_fldr, "complete."))
 
-        
     }
+}
+
     
-}
-
-####### There may be problems with this function ####################
-####### Untar and stack files  in folder directory ##################
-####### This function is to stack all layers from one image! ########
-####### we may still need to work on this!! #########################
-
-untar_and_stack_all <- function(path_tar,...){
-    path_tar = path_tar
-    path_untar = paste(path_tar, 'untar', sep = '')
-    path_stack = paste(path_tar, 'stack', sep = '')
-
-    #condition to create untar folder
-    if (!dir.exists(path_untar)){
-    dir.create(path_untar)
-    } else {
-        print("Untar folder already exists!")
-    }
-
-    #condition to create save folder
-    if (!dir.exists(path_stack)){
-    dir.create(path_stack)
-    } else {
-        print("Stack folder already exists!")
-    }
-
-    #create a list of .tar files
-    list_tar <- list.files(path_tar, full.names = TRUE, pattern = '\\.tar')
-
-    #create a loop into the list_tar
-
-    for (i in list_tar){
-        
-        #name of extract directory > DWSE ou landsat scene image name!
-        folder = gsub('.tar','',strsplit(i,'/')[[1]][7])
-
-        #create extract directory 
-        extract_dir = file.path(path_untar,folder) #warning messages when there is already the unzipped files
-
-        if (!dir.exists(extract_dir)){
-        dir.create(extract_dir)
-        } else {
-            print("Extract directory already exists!")
-        } 
-
-        #Apply untar function  
-        img_untar <- untar(i, list = FALSE, exdir = extract_dir)
-
-        #list .tif files in extract_dir!
-        list_tif <- list.files(extract_dir, full.names = TRUE, pattern = '\\.tif')
-
-        #create a raster stack with .tifs
-        raster_s <- stack(list_tif)
-
-        #rename .tifs using shorter names
-        #this problematic when applying the rasterWrite - it does not save the stack the layer names
-        raster_s <- setNames(raster_s,c('DIAG','INTR','INWM','MASK','SHADE','SLOPE'))
-        #save the raster stack
-        writeRaster(raster_s, file.path(path_stack,paste(folder,'.tif',sep='')), format="GTiff",options="INTERLEAVE=BAND", overwrite=TRUE)
-
-        #print a message once the image is complete.
-        print(sprintf("Image %s is completed.", folder))
-    }
-}
