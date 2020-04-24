@@ -13,6 +13,9 @@
 
 `mosaic.py` merges 45 ARD tiles from the year-season to generate 2 raster files per year-season
 
+`gridmet2.js` Google Earth Enging script to get standardized anomaly maximum temperature data for each season in 2018.
+
+---
 
 `error_files.txt` contains error messages from the decompression in untar.ipynb
 
