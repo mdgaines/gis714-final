@@ -17,7 +17,7 @@
 
 `cld_GEE.js` Google Earth Engine script to get percent of land cover types in each 8-digit HUC
 
-`lmm.r` reads all csv files and compiles them into one csv and runs 2 linear mixed models and finds the marginal and conditional R<sup>2</sup> values for each model (disclaimer, this is not very cleanly written and will not be my final script when I scale up this project, but it got the job done quickly)
+`lmm.r` reads all csv files and compiles them into one csv and runs 2 linear mixed models and finds the marginal and conditional R^2 values for each model (disclaimer, this is not very cleanly written and will not be my final script when I scale up this project, but it got the job done quickly)
 
 ---
 
