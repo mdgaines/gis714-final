@@ -13,7 +13,11 @@
 
 `mosaic.py` merges 45 ARD tiles from the year-season to generate 2 raster files per year-season
 
-`gridmet2.js` Google Earth Enging script to get standardized anomaly maximum temperature data for each season in 2018.
+`gridmet2.js` Google Earth Engine script to get standardized anomaly maximum temperature data for each season in 2018.
+
+`cld_GEE.js` Google Earth Engine script to get percent of land cover types in each 8-digit HUC
+
+`lmm.r` reads all csv files and compiles them into one csv and runs 2 linear mixed models and finds the marginal and conditional R<sup>2</sup> values for each model (disclaimer, this is not very cleanly written and will not be my final script when I scale up this project, but it got the job done quickly)
 
 ---
 

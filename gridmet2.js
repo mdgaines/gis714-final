@@ -27,7 +27,7 @@ var winter18_maxTemp = GRIDMET_data.select('tmmx')
                         .filterDate('2018-12-01','2019-03-01')
                         .reduce(ee.Reducer.mean());
 
-var winter18_stAnomaly = winterAll_AvgMaxTemp.subtract(winter18_maxTemp)
+var winter18_stAnomaly = winter18_maxTemp.subtract(winterAll_AvgMaxTemp)
                           .divide(winterAll_StdevMaxT);
   
 var w18_huc8_MxTanom = winter18_stAnomaly.reduceRegions({
@@ -66,7 +66,7 @@ var spring18_maxTemp = GRIDMET_data.select('tmmx')
                         .filter(ee.Filter.calendarRange(2018,2018,'year'))
                         .reduce(ee.Reducer.mean());
 
-var spring18_stAnomaly = springAll_AvgMaxTemp.subtract(spring18_maxTemp)
+var spring18_stAnomaly = spring18_maxTemp.subtract(springAll_AvgMaxTemp)
                           .divide(springAll_StdevMaxT);
   
 var sp18_huc8_MxTanom = spring18_stAnomaly.reduceRegions({
@@ -105,7 +105,7 @@ var summer18_maxTemp = GRIDMET_data.select('tmmx')
                         .filter(ee.Filter.calendarRange(2018,2018,'year'))
                         .reduce(ee.Reducer.mean());
 
-var summer18_stAnomaly = summerAll_AvgMaxTemp.subtract(summer18_maxTemp)
+var summer18_stAnomaly = summer18_maxTemp.subtract(summerAll_AvgMaxTemp)
                           .divide(summerAll_StdevMaxT);
   
 var su18_huc8_MxTanom = summer18_stAnomaly.reduceRegions({
@@ -144,7 +144,7 @@ var Fall18_maxTemp = GRIDMET_data.select('tmmx')
                         .filter(ee.Filter.calendarRange(2018,2018,'year'))
                         .reduce(ee.Reducer.mean());
 
-var Fall18_stAnomaly = FallAll_AvgMaxTemp.subtract(Fall18_maxTemp)
+var Fall18_stAnomaly = Fall18_maxTemp.subtract(FallAll_AvgMaxTemp)
                           .divide(FallAll_StdevMaxT);
   
 var f18_huc8_MxTanom = Fall18_stAnomaly.reduceRegions({
